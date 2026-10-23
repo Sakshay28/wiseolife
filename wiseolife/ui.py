@@ -47,6 +47,10 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif; }
 [data-testid="stSidebar"] .stButton button:hover { background: rgba(255,255,255,.16); border-color: #a5b4fc; }
 [data-testid="stSidebar"] .stButton button[kind="primary"] { background: linear-gradient(90deg,#6d28d9,#4f46e5); border: none; color: #fff; }
 [data-testid="stSidebar"] [data-baseweb="select"] * { color: #0f172a !important; }
+[data-testid="stSidebar"] [data-testid="stSelectbox"] input, [data-testid="stSidebar"] [role="combobox"] {
+  color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; }
+[data-testid="stSidebar"] [data-testid="stSelectbox"] button, [data-testid="stSidebar"] [data-testid="stSelectbox"] svg {
+  color: #475569 !important; fill: #475569 !important; }
 .stButton button[kind="primary"], .stDownloadButton button[kind="primary"] { background: linear-gradient(90deg,#6d28d9,#4f46e5);
   border: none; color: #fff; border-radius: 12px; font-weight: 700; }
 .stButton button, .stDownloadButton button { border-radius: 12px; font-weight: 600; }
