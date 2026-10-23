@@ -21,7 +21,6 @@ from datetime import date, datetime
 
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 
 from wiseolife import chatbot, config, demo, model as ml
 from wiseolife import questions as qs
@@ -168,6 +167,19 @@ def jump_to_question(number):
     st.rerun()
 
 
+def _run_script(doc):
+    """Run a tiny one-shot browser script. Uses st.iframe on current Streamlit, the older
+    components API otherwise, and never lets a failure break the page."""
+    try:
+        if hasattr(st, "iframe"):
+            st.iframe(doc, height=1)
+        else:
+            import streamlit.components.v1 as components
+            components.html(doc, height=0)
+    except Exception:
+        pass
+
+
 def emit_focus():
     """Run the pending one-shot scroll/focus request (if any) in the browser."""
     ss = st.session_state
@@ -177,7 +189,7 @@ def emit_focus():
     ss.pending_focus = None
     q = pf["q"]
     first = "true" if q and ts.section_range(ts.locate(q)[2])[0] == q else "false"
-    components.html(f"""<script>/* focus request {pf['nonce']} */
+    _run_script(f"""<script>/* focus request {pf['nonce']} */
 (function () {{
   var Q = {q if q else 'null'}, FIRST = {first}, tries = 0;
   function run() {{
@@ -191,7 +203,7 @@ def emit_focus():
   }}
   run();
 }})();
-</script>""", height=0)
+</script>""")
 
 
 # ===========================================================================
