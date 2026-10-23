@@ -1,9 +1,40 @@
 [theme]
 base = "light"
-primaryColor = "#6d28d9"
-backgroundColor = "#f4f6fb"
-secondaryBackgroundColor = "#ffffff"
-textColor = "#0f172a"
+primaryColor = "#5946D8"
+backgroundColor = "#F8F9FC"
+secondaryBackgroundColor = "#F3F4F9"
+textColor = "#182033"
+linkColor = "#4A38C4"
+borderColor = "#E6E9F0"
+dataframeBorderColor = "#E6E9F0"
+dataframeHeaderBackgroundColor = "#F6F7FB"
+showWidgetBorder = true
+showSidebarBorder = true
+baseRadius = "8px"
+buttonRadius = "8px"
+baseFontSize = 15
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+codeFont = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+headingFontWeights = [700, 600, 600, 600, 600, 600]
+headingFontSizes = ["1.875rem", "1.375rem", "1.25rem", "1.0625rem", "1rem", "0.875rem"]
+greenColor = "#1E9A61"
+greenBackgroundColor = "#E7F6EE"
+greenTextColor = "#11683F"
+yellowColor = "#E48A13"
+yellowBackgroundColor = "#FEF3E4"
+yellowTextColor = "#8F4E07"
+redColor = "#D93B3B"
+redBackgroundColor = "#FCECEC"
+redTextColor = "#A42424"
+blueColor = "#5946D8"
+blueBackgroundColor = "#EEEAFE"
+blueTextColor = "#3E2EAE"
+chartCategoricalColors = ["#5946D8", "#E48A13", "#1E9A61", "#D93B3B", "#8A93A6", "#2E8FD6"]
+
+[theme.sidebar]
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F4F5FA"
+textColor = "#182033"
 
 [browser]
 gatherUsageStats = false
