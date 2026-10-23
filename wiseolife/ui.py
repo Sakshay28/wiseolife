@@ -206,6 +206,8 @@ _CSS = """
   padding:14px 10px 6px;margin:0;}
 .stApp [data-testid="stSidebar"] .st-key-wl_nav .stButton button{justify-content:flex-start;gap:10px;min-height:34px;height:34px;
   padding:0 10px;background:transparent;border:1px solid transparent;box-shadow:none;color:var(--wl-text-2);border-radius:var(--wl-r);}
+.stApp [data-testid="stSidebar"] .st-key-wl_nav .stButton button > div{justify-content:flex-start;width:100%;}
+.stApp [data-testid="stSidebar"] .st-key-wl_nav .stButton button > div > span{justify-content:flex-start;}
 .stApp [data-testid="stSidebar"] .st-key-wl_nav .stButton button:hover{background:var(--wl-subtle);color:var(--wl-text);}
 .stApp [data-testid="stSidebar"] .st-key-wl_nav .stButton button p{font-size:14px;font-weight:500;text-align:left;white-space:nowrap;}
 .stApp [data-testid="stSidebar"] .st-key-wl_nav .stButton button [data-testid="stIconMaterial"]{font-size:19px;color:var(--wl-faint);}
