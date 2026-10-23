@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+wiseolife_data.db
+generated_reports/*.pdf
+.DS_Store
