@@ -110,8 +110,9 @@ def generate_synthetic_dataset(n=config.N_SYNTHETIC_RECORDS, seed=config.RANDOM_
 def train_model():
     """Train the Random Forest on all 14 features. Deterministic (random_state=42)."""
     df = generate_synthetic_dataset()
-    X = df[config.FEATURE_NAMES].values
-    y = df["risk"].values
+    # Plain NumPy arrays: newer pandas returns Arrow-backed string columns that scikit-learn cannot index.
+    X = df[config.FEATURE_NAMES].to_numpy(dtype=float)
+    y = np.asarray(df["risk"].tolist(), dtype=object)
     X_tr, X_te, y_tr, y_te = train_test_split(
         X, y, test_size=0.2, random_state=config.RANDOM_STATE, stratify=y)
     clf = RandomForestClassifier(
