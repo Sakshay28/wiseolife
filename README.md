@@ -16,7 +16,7 @@ Landing page · 89-question assessment with progress bar · six-instrument scori
 MBI dimensions, Big Five reverse items) · **🧠 14-Feature AI Input Vector** dashboard · Random Forest risk prediction with
 confidence · feature-importance explainability · personalised wellness plan · WiseBot (offline rule-based chatbot) ·
 wellness journal (SQLite) · progress tracking · HR dashboard (anonymised, simulated) · professional-review workflow
-(simulated) · PDF + CSV reports · one-click **🎬 Load Demo Candidate** · built-in self-tests (28).
+(simulated) · PDF + CSV reports · one-click **🎬 Load Demo Candidate** · built-in self-tests (40).
 
 ## Tech stack
 Python · Streamlit · scikit-learn · pandas · numpy · Plotly · matplotlib · ReportLab · SQLite (optional, local).
@@ -51,7 +51,7 @@ wiseolife/
   recommendations.py   wellness plan          chatbot.py   WiseBot
   report.py            PDF + CSV             storage.py   local SQLite
   demo.py              demo candidates       ui.py        theme, components, charts
-  selftest.py          28 validation tests
+  selftest.py          40 validation tests
 .streamlit/config.toml theme
 ```
 

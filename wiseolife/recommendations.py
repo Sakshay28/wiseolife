@@ -107,7 +107,7 @@ def generate_recommendations(scores, prediction):
     safety = bool(scores["phq9"].get("safety_flag"))
     review = prediction["risk"] == "HIGH" or safety
     risk = prediction["risk"]
-    summary = (f"{config.RISK_EMOJI[risk]} Your screening indication is {risk} "
+    summary = (f"{config.RISK_EMOJI[risk]} Your screening indication is {config.risk_label(risk, with_name=True)} "
                f"({prediction['confidence'] * 100:.0f}% model confidence). "
                "The plan below focuses on the areas that scored highest.")
     return {

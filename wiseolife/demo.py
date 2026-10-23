@@ -34,7 +34,7 @@ DEMO_CANDIDATES = {
 
 def demo_options():
     """[(candidate_id, label)] for the sidebar selector."""
-    return [(cid, f"{cid} · {c['expected_risk'].title()} · {c['title']}")
+    return [(cid, f"{cid} · {config.risk_label(c['expected_risk'])} · {c['title']}")
             for cid, c in DEMO_CANDIDATES.items()]
 
 

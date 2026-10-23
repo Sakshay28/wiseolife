@@ -42,14 +42,14 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif; }
 .block-container { padding-top: 1.6rem; max-width: 1250px; }
 [data-testid="stSidebar"] { background: linear-gradient(180deg,#1e1b4b 0%,#312e81 55%,#4c1d95 100%); }
 [data-testid="stSidebar"] * { color: #e0e7ff; }
-[data-testid="stSidebar"] .stButton>button { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12);
+[data-testid="stSidebar"] .stButton button { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12);
   color: #e0e7ff; border-radius: 10px; text-align: left; justify-content: flex-start; font-weight: 600; padding: .35rem .8rem; }
-[data-testid="stSidebar"] .stButton>button:hover { background: rgba(255,255,255,.16); border-color: #a5b4fc; }
-[data-testid="stSidebar"] .stButton>button[kind="primary"] { background: linear-gradient(90deg,#6d28d9,#4f46e5); border: none; color: #fff; }
+[data-testid="stSidebar"] .stButton button:hover { background: rgba(255,255,255,.16); border-color: #a5b4fc; }
+[data-testid="stSidebar"] .stButton button[kind="primary"] { background: linear-gradient(90deg,#6d28d9,#4f46e5); border: none; color: #fff; }
 [data-testid="stSidebar"] [data-baseweb="select"] * { color: #0f172a !important; }
-.stButton>button[kind="primary"], .stDownloadButton>button[kind="primary"] { background: linear-gradient(90deg,#6d28d9,#4f46e5);
+.stButton button[kind="primary"], .stDownloadButton button[kind="primary"] { background: linear-gradient(90deg,#6d28d9,#4f46e5);
   border: none; color: #fff; border-radius: 12px; font-weight: 700; }
-.stButton>button, .stDownloadButton>button { border-radius: 12px; font-weight: 600; }
+.stButton button, .stDownloadButton button { border-radius: 12px; font-weight: 600; }
 .wl-hero { background: linear-gradient(120deg,#1e1b4b 0%,#4338ca 55%,#7c3aed 100%); color: #fff; border-radius: 24px;
   padding: 2.6rem 2.4rem; box-shadow: 0 18px 40px rgba(67,56,202,.28); margin-bottom: 1.2rem; }
 .wl-hero h1 { color:#fff; font-size: 3rem; font-weight: 800; margin: .3rem 0 .1rem; letter-spacing:-1px; }
@@ -92,6 +92,41 @@ html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif; }
 .bubble-u { background: linear-gradient(90deg,#6d28d9,#4f46e5); color:#fff; margin-left:auto; border-bottom-right-radius:4px; }
 .bubble-b { background:#fff; border:1px solid #e2e8f0; color:#0f172a; border-bottom-left-radius:4px; }
 #MainMenu, footer { visibility: hidden; }
+
+/* ---- tooltips: native <details>, works with hover-free touch + keyboard ---- */
+.wl-tipd { display:inline-block; position:relative; vertical-align:middle; margin-left:.35rem; }
+.wl-tipd > summary { list-style:none; cursor:help; width:1.15rem; height:1.15rem; line-height:1.15rem; text-align:center;
+  border-radius:50%; background:#e0e7ff; color:#4338ca; font-size:.72rem; font-weight:800; user-select:none; }
+.wl-tipd > summary::-webkit-details-marker { display:none; }
+.wl-tipd > summary:focus-visible { outline:2px solid #6d28d9; outline-offset:2px; }
+.wl-tipd[open] > summary { background:#4338ca; color:#fff; }
+.wl-tipbody { position:absolute; z-index:50; left:0; top:1.6rem; width:min(280px,70vw); background:#1e1b4b; color:#e0e7ff;
+  font-size:.8rem; font-weight:500; line-height:1.45; text-transform:none; letter-spacing:0; border-radius:10px;
+  padding:.6rem .75rem; box-shadow:0 10px 24px rgba(15,23,42,.3); }
+/* ---- question + status chips ---- */
+.wl-qhead { font-weight:700; color:#0f172a; margin:.55rem 0 .15rem; scroll-margin-top:5rem; outline:none; border-radius:8px; }
+.wl-qhead:focus-visible { outline:3px solid #a5b4fc; outline-offset:3px; }
+.wl-qnum { color:#6d28d9; }
+.wl-st { display:inline-block; border-radius:999px; padding:.05rem .55rem; font-size:.7rem; font-weight:700; margin-left:.4rem; vertical-align:middle; }
+.wl-st-ok { background:#d1fae5; color:#065f46; } .wl-st-skip { background:#fef3c7; color:#92400e; } .wl-st-open { background:#e2e8f0; color:#475569; }
+.wl-counts { display:flex; flex-wrap:wrap; gap:.4rem; margin-top:.45rem; }
+.wl-count { border-radius:10px; padding:.2rem .65rem; font-size:.78rem; font-weight:700; }
+.wl-risk .def { font-size:.9rem; margin-top:.35rem; opacity:.95; }
+.wl-rnum { display:inline-block; background:rgba(255,255,255,.22); border-radius:10px; padding:.05rem .6rem; font-size:1.1rem; margin-right:.45rem; vertical-align:middle; }
+/* ---- responsive ---- */
+.wl-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:.8rem; }
+@media (max-width: 640px) { .wl-grid { grid-template-columns:repeat(2,1fr); gap:.6rem; } }
+@media (max-width: 900px) {
+  .block-container { padding: 3.4rem .9rem 3rem; }
+  .wl-hero { padding: 1.6rem 1.2rem; border-radius:18px; } .wl-hero h1 { font-size: 2.1rem; } .wl-hero p { font-size:.95rem; }
+  .wl-risk h1 { font-size: 1.7rem; } .wl-risk { padding: 1.1rem 1.1rem; }
+  .bubble-u, .bubble-b { max-width: 94%; }
+}
+@media (max-width: 640px) {
+  .wl-stat-n { font-size: 1.5rem; } .wl-card-value { font-size: 1.3rem; }
+  .stButton button, .stDownloadButton button { min-height: 2.8rem; }
+  .wl-vector { font-size: .85rem; } .wl-tipbody { left:auto; right:-.5rem; }
+}
 </style>""", unsafe_allow_html=True)
 
 
@@ -102,14 +137,28 @@ def _h(text):
     return html.escape(str(text))
 
 
+def tip(text, label="What does this mean?"):
+    """Inline ⓘ help bubble (native <details>: tap, click or Enter/Space to open)."""
+    return (f"<details class='wl-tipd'><summary aria-label='{_h(label)}' title='{_h(label)}'>i</summary>"
+            f"<div class='wl-tipbody' role='note'>{_h(text)}</div></details>")
+
+
+def status_chip(state):
+    """state: 'answered' | 'skipped' | 'unanswered'."""
+    cls, label = {"answered": ("wl-st-ok", "✓ Answered"), "skipped": ("wl-st-skip", "⏭ Skipped"),
+                  "unanswered": ("wl-st-open", "○ Unanswered")}[state]
+    return f"<span class='wl-st {cls}'>{label}</span>"
+
+
 def hero(title, subtitle, text, badge=""):
     st.markdown(f"<div class='wl-hero'><span class='wl-badge'>{_h(badge)}</span><h1>{_h(title)}</h1>"
                 f"<h3>{_h(subtitle)}</h3><p>{_h(text)}</p></div>", unsafe_allow_html=True)
 
 
-def section(title, subtitle=""):
+def section(title, subtitle="", help=None):
     sub = f"<p>{_h(subtitle)}</p>" if subtitle else ""
-    st.markdown(f"<div class='wl-section'><h2>{_h(title)}</h2>{sub}</div>", unsafe_allow_html=True)
+    tip_html = tip(help) if help else ""
+    st.markdown(f"<div class='wl-section'><h2>{_h(title)}{tip_html}</h2>{sub}</div>", unsafe_allow_html=True)
 
 
 def stat(n, label):
@@ -117,8 +166,16 @@ def stat(n, label):
                 f"<div class='wl-stat-l'>{_h(label)}</div></div>", unsafe_allow_html=True)
 
 
-def card(title, value, sub=""):
-    st.markdown(f"<div class='wl-card'><div class='wl-card-title'>{_h(title)}</div>"
+def stat_grid(items):
+    """Stat tiles in a responsive grid: 4 across on desktop, 2x2 on phones."""
+    tiles = "".join(f"<div class='wl-stat'><div class='wl-stat-n'>{_h(n)}</div><div class='wl-stat-l'>{_h(label)}</div></div>"
+                    for n, label in items)
+    st.markdown(f"<div class='wl-grid'>{tiles}</div>", unsafe_allow_html=True)
+
+
+def card(title, value, sub="", help=None):
+    tip_html = tip(help) if help else ""
+    st.markdown(f"<div class='wl-card'><div class='wl-card-title'>{_h(title)}{tip_html}</div>"
                 f"<div class='wl-card-value'>{_h(value)}</div><div class='wl-card-sub'>{_h(sub)}</div></div>",
                 unsafe_allow_html=True)
 
@@ -148,7 +205,7 @@ def workflow(steps):
     st.markdown(f"<div class='wl-flow'>{''.join(parts)}</div>", unsafe_allow_html=True)
 
 
-def score_card(icon, title, value, level, caption, pct, positive=False):
+def score_card(icon, title, value, level, caption, pct, positive=False, help=None):
     """Headline score card with a coloured level pill and progress bar.
 
     positive=True means a HIGH score is good (MBI Personal Accomplishment)."""
@@ -158,7 +215,7 @@ def score_card(icon, title, value, level, caption, pct, positive=False):
     dot = {"High": "🟢", "Moderate": "🟡", "Low": "🔴"}.get(level, "") if positive else LEVEL_DOT.get(level, "⚪")
     pct = max(0, min(100, pct))
     st.markdown(
-        f"<div class='wl-card'><div class='wl-card-title'>{_h(icon)} {_h(title)}</div>"
+        f"<div class='wl-card'><div class='wl-card-title'>{_h(icon)} {_h(title)}{tip(help) if help else ''}</div>"
         f"<div class='wl-card-value'>{_h(value)}</div>"
         f"<span class='wl-pill' style='background:{color}'>{dot} {_h(level)}</span>"
         f"<div class='wl-bar'><div style='width:{pct:.0f}%;background:{color}'></div></div>"
@@ -167,20 +224,35 @@ def score_card(icon, title, value, level, caption, pct, positive=False):
 
 
 def risk_banner(risk, confidence, disclaimer_text):
+    """Risk card showing number, name and definition together (from config.RISK_LEVELS)."""
+    info = config.risk_info(risk)
     grad = {"LOW": "linear-gradient(120deg,#047857,#10b981)",
             "MEDIUM": "linear-gradient(120deg,#b45309,#f59e0b)",
             "HIGH": "linear-gradient(120deg,#991b1b,#ef4444)"}[risk]
     st.markdown(
         f"<div class='wl-risk' style='background:{grad}'><div style='font-size:.8rem;font-weight:700;"
-        f"letter-spacing:1px;opacity:.9'>AI RISK INDICATION</div>"
-        f"<h1>{config.RISK_EMOJI[risk]} {risk} RISK</h1>"
-        f"<div class='conf'>Confidence: {confidence * 100:.1f}%</div>"
+        f"letter-spacing:1px;opacity:.9'>AI RISK INDICATION"
+        f"{tip('A screening indication from a Random Forest trained on synthetic data. R1-R3 rank severity; it is not a diagnosis.')}</div>"
+        f"<h1><span class='wl-rnum'>R{info['number']}</span>{config.RISK_EMOJI[risk]} {_h(info['name']).upper()}</h1>"
+        f"<div class='def'>{_h(info['definition'])}</div>"
+        f"<div class='conf'>Confidence: {confidence * 100:.1f}%"
+        f"{tip('Share of the forest trees that voted for this class. It reflects agreement among trees, not clinical certainty.')}</div>"
         f"<div class='disc'>{_h(disclaimer_text)}</div></div>", unsafe_allow_html=True)
 
 
-def feature_chip(label, value, is_float=False):
+def risk_legend():
+    """The three risk levels with numbers and definitions, shown as a compact table."""
+    rows = "".join(
+        f"<tr><td><b>R{r['number']}</b></td><td>{config.RISK_EMOJI[r['key']]} <b>{_h(r['name'])}</b></td>"
+        f"<td>{_h(r['definition'])}</td></tr>" for r in config.RISK_LEVELS)
+    st.markdown("<div class='wl-card' style='overflow-x:auto'><table style='width:100%;font-size:.86rem;border-collapse:collapse'>"
+                f"<tr style='text-align:left;color:#6366f1'><th>No.</th><th>Risk</th><th>Definition</th></tr>{rows}</table></div>",
+                unsafe_allow_html=True)
+
+
+def feature_chip(label, value, is_float=False, help=None):
     shown = f"{value:.2f}" if is_float else f"{value:g}"
-    st.markdown(f"<div class='wl-chip'><div class='l'>{_h(label)}</div><div class='v'>{shown}</div></div>",
+    st.markdown(f"<div class='wl-chip'><div class='l'>{_h(label)}{tip(help) if help else ''}</div><div class='v'>{shown}</div></div>",
                 unsafe_allow_html=True)
 
 
@@ -230,7 +302,7 @@ def chart_scores_bar(scores):
 
 def chart_probabilities(probs):
     order = config.RISK_CLASSES
-    fig = go.Figure(go.Bar(x=[probs[c] * 100 for c in order], y=order, orientation="h",
+    fig = go.Figure(go.Bar(x=[probs[c] * 100 for c in order], y=[config.risk_label(c) for c in order], orientation="h",
                            marker_color=[config.RISK_COLOR[c] for c in order],
                            text=[f"{probs[c] * 100:.1f}%" for c in order], textposition="auto"))
     fig.update_xaxes(range=[0, 100], title="Probability (%)")
@@ -269,7 +341,8 @@ def chart_big5_radar(b):
 
 
 def chart_confusion(cm, labels):
-    fig = go.Figure(go.Heatmap(z=cm, x=labels, y=labels, colorscale="Purples", showscale=False,
+    names = [config.risk_label(c) for c in labels]
+    fig = go.Figure(go.Heatmap(z=cm, x=names, y=names, colorscale="Purples", showscale=False,
                                text=cm, texttemplate="%{text}"))
     fig.update_xaxes(title="Predicted")
     fig.update_yaxes(title="Actual", autorange="reversed")
@@ -279,7 +352,7 @@ def chart_confusion(cm, labels):
 def chart_dataset_distribution(df):
     counts = df["risk"].value_counts()
     order = [c for c in config.RISK_CLASSES if c in counts.index]
-    fig = go.Figure(go.Bar(x=order, y=[int(counts[c]) for c in order],
+    fig = go.Figure(go.Bar(x=[config.risk_label(c) for c in order], y=[int(counts[c]) for c in order],
                            marker_color=[config.RISK_COLOR[c] for c in order],
                            text=[int(counts[c]) for c in order], textposition="outside"))
     return _style(fig, 330, "Synthetic dataset: class distribution")
@@ -328,6 +401,6 @@ def chart_journal(entries):
 
 def chart_risk_donut(counts):
     order = config.RISK_CLASSES
-    fig = go.Figure(go.Pie(labels=order, values=[counts.get(c, 0) for c in order], hole=0.6,
+    fig = go.Figure(go.Pie(labels=[config.risk_label(c) for c in order], values=[counts.get(c, 0) for c in order], hole=0.6,
                            marker_colors=[config.RISK_COLOR[c] for c in order]))
     return _style(fig, 320, "Cohort risk distribution")

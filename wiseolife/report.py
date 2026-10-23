@@ -120,9 +120,10 @@ def generate_report(result, plan, importance, metrics, review, explanation):
 
     # --- AI classification
     s.append(Paragraph("AI risk classification (screening indication)", h2))
-    risk_tbl = Table([[f"{pred['risk']} RISK", f"Model confidence: {pred['confidence'] * 100:.1f}%",
+    info = config.risk_info(pred["risk"])
+    risk_tbl = Table([[f"R{info['number']} · {info['name'].upper()}", f"Model confidence: {pred['confidence'] * 100:.1f}%",
                        "  ".join(f"{k}: {v * 100:.0f}%" for k, v in pred["probabilities"].items())]],
-                     colWidths=[3.5 * cm, 5 * cm, W - 8.5 * cm])
+                     colWidths=[4.6 * cm, 4.6 * cm, W - 9.2 * cm])
     risk_tbl.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (0, 0), RISK_RL[pred["risk"]]), ("TEXTCOLOR", (0, 0), (0, 0), colors.white),
         ("FONTNAME", (0, 0), (0, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 9.5),
@@ -130,6 +131,7 @@ def generate_report(result, plan, importance, metrics, review, explanation):
         ("BOTTOMPADDING", (0, 0), (-1, -1), 7)]))
     s.append(risk_tbl)
     s.append(Spacer(1, 4))
+    s.append(Paragraph(f"<b>R{info['number']} · {_p(info['name'])}:</b> {_p(info['definition'])}", body))
     s.append(Paragraph(_p(config.AI_DISCLAIMER) + " " + _p(explanation), body))
 
     # --- summary
@@ -251,10 +253,11 @@ def generate_csv(result):
     out = io.StringIO()
     w = csv.writer(out)
     w.writerow(["candidate_id", "date", "measure", "score", "interpretation"])
+    risk = result["prediction"]["risk"]
     for name, val, lvl in rows:
         w.writerow([result["candidate_id"], result["timestamp"][:10], name, val, lvl])
     w.writerow([result["candidate_id"], result["timestamp"][:10], "AI risk indication",
-                f"{result['prediction']['confidence'] * 100:.1f}%", result["prediction"]["risk"]])
+                f"{result['prediction']['confidence'] * 100:.1f}%", config.risk_full(risk)])
     return out.getvalue().encode("utf-8")
 
 
@@ -262,7 +265,9 @@ def generate_feature_row_csv(result):
     """One-row CSV of the 14 model inputs plus the prediction."""
     out = io.StringIO()
     w = csv.writer(out)
-    w.writerow(["candidate_id"] + config.FEATURE_NAMES + ["predicted_risk", "confidence"])
+    w.writerow(["candidate_id"] + config.FEATURE_NAMES + ["risk_number", "predicted_risk", "risk_definition", "confidence"])
     w.writerow([result["candidate_id"]] + list(result["features"]) +
-               [result["prediction"]["risk"], round(result["prediction"]["confidence"], 4)])
+               [config.risk_info(result["prediction"]["risk"])["number"], result["prediction"]["risk"],
+                config.risk_info(result["prediction"]["risk"])["definition"],
+                round(result["prediction"]["confidence"], 4)])
     return out.getvalue().encode("utf-8")

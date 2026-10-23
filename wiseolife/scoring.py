@@ -207,19 +207,19 @@ def summary_cards(scores):
     """Six headline cards for the results dashboard."""
     d, m, b = scores["dass"], scores["mbi"], scores["big5"]
     return [
-        {"icon": "😰", "title": "PSS · Perceived Stress", "value": f"{scores['pss']['score']} / 40",
+        {"icon": "😰", "title": "PSS · Perceived Stress", "help": "Perceived Stress Scale (0-40): how overloaded and out of control life felt this past month. Bands: 0-13 Low, 14-26 Moderate, 27-40 High.", "value": f"{scores['pss']['score']} / 40",
          "level": scores["pss"]["level"], "caption": "Higher = more stress"},
-        {"icon": "😟", "title": "GAD-7 · Anxiety", "value": f"{scores['gad7']['score']} / 21",
+        {"icon": "😟", "title": "GAD-7 · Anxiety", "help": "Anxiety screening (0-21). 0-4 Minimal, 5-9 Mild, 10-14 Moderate, 15-21 Severe.", "value": f"{scores['gad7']['score']} / 21",
          "level": scores["gad7"]["level"], "caption": "Higher = more anxiety symptoms"},
-        {"icon": "😔", "title": "PHQ-9 · Depression", "value": f"{scores['phq9']['score']} / 27",
+        {"icon": "😔", "title": "PHQ-9 · Depression", "help": "Depression screening (0-27). 0-4 Minimal up to 20-27 Severe.", "value": f"{scores['phq9']['score']} / 27",
          "level": scores["phq9"]["level"], "caption": "Higher = more depressive symptoms"},
-        {"icon": "📉", "title": "DASS · Stress subscale", "value": f"{d['stress']} / 42",
+        {"icon": "📉", "title": "DASS · Stress subscale", "help": "Stress part of DASS-21 (0-42, items summed then x2). D / A / S below show all three subscales.", "value": f"{d['stress']} / 42",
          "level": d["stress_level"],
          "caption": f"D {d['depression']} · A {d['anxiety']} · S {d['stress']}"},
-        {"icon": "🔥", "title": "MBI · Emotional Exhaustion",
+        {"icon": "🔥", "title": "MBI · Emotional Exhaustion", "help": "Core burnout signal (0-54): feeling drained by work or study. DP = Depersonalization, PA = Personal Accomplishment (high PA is good).",
          "value": f"{m['emotional_exhaustion']} / 54", "level": m["ee_level"],
          "caption": f"DP {m['depersonalization']} · PA {m['personal_accomplishment']}"},
-        {"icon": "🌈", "title": "Big Five · Neuroticism", "value": f"{b['neuroticism']} / 5",
+        {"icon": "🌈", "title": "Big Five · Neuroticism", "help": "Tendency toward worry and low mood (1-5). O C E A = Openness, Conscientiousness, Extraversion, Agreeableness.", "value": f"{b['neuroticism']} / 5",
          "level": b["levels"]["N"],
          "caption": f"O {b['openness']} · C {b['conscientiousness']} · "
                     f"E {b['extraversion']} · A {b['agreeableness']}"},

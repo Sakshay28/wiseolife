@@ -108,6 +108,23 @@ FEATURE_LABELS = {
     "neuroticism": "Big Five Neuroticism",
 }
 
+FEATURE_HELP = {
+    "pss_score": "Perceived stress over the last month (after reverse scoring). Higher = more stress.",
+    "gad7_score": "Anxiety symptoms over 2 weeks. Higher = more symptoms.",
+    "phq9_score": "Depression-related symptoms over 2 weeks. Higher = more symptoms.",
+    "dass_depression": "DASS-21 depression subscale (7 items x 2). Higher = more concerning.",
+    "dass_anxiety": "DASS-21 anxiety subscale (7 items x 2). Higher = more concerning.",
+    "dass_stress": "DASS-21 stress subscale (7 items x 2). Higher = more concerning.",
+    "mbi_emotional_exhaustion": "Feeling drained by work or study. Higher = more concerning.",
+    "mbi_depersonalization": "Detachment or cynicism toward people. Higher = more concerning.",
+    "mbi_personal_accomplishment": "Sense of achievement. Higher is POSITIVE; only a low score is a concern.",
+    "openness": "Curiosity and openness to new experience (1-5).",
+    "conscientiousness": "Organisation and self-discipline (1-5). Higher is protective.",
+    "extraversion": "Sociability and energy around others (1-5).",
+    "agreeableness": "Warmth and cooperation (1-5).",
+    "neuroticism": "Tendency toward worry and low mood (1-5). Higher = more concerning.",
+}
+
 FEATURE_RANGES = {
     "pss_score": (0, 40), "gad7_score": (0, 21), "phq9_score": (0, 27),
     "dass_depression": (0, 42), "dass_anxiety": (0, 42), "dass_stress": (0, 42),
@@ -137,6 +154,35 @@ RF_N_ESTIMATORS = 200
 RF_MAX_DEPTH = 8
 RISK_CLASSES = ["LOW", "MEDIUM", "HIGH"]
 RISK_EMOJI = {"LOW": "🟢", "MEDIUM": "🟡", "HIGH": "🔴"}
+
+# Canonical risk catalogue: the ONE source for risk numbers, names and definitions.
+# Numbers follow severity order (R1 lowest). Everything that displays a risk reads this.
+RISK_LEVELS = [
+    {"number": 1, "key": "LOW", "name": "Low Risk",
+     "definition": "No major indicators are elevated. Routine self-care and periodic re-screening are suggested."},
+    {"number": 2, "key": "MEDIUM", "name": "Medium Risk",
+     "definition": "Some indicators are elevated. Follow the wellness plan and consider a supportive conversation or follow-up screening."},
+    {"number": 3, "key": "HIGH", "name": "High Risk",
+     "definition": "Several important indicators are elevated. Professional review is recommended; this is a screening signal, not a diagnosis."},
+]
+_RISK_BY_KEY = {r["key"]: r for r in RISK_LEVELS}
+
+
+def risk_info(risk):
+    """Risk record for 'LOW' / 'MEDIUM' / 'HIGH'."""
+    return _RISK_BY_KEY[risk]
+
+
+def risk_label(risk, with_name=False):
+    """'R2 · MEDIUM' (or 'R2 · Medium Risk' with with_name=True)."""
+    r = _RISK_BY_KEY[risk]
+    return f"R{r['number']} · {r['name'] if with_name else risk}"
+
+
+def risk_full(risk):
+    """'R2 · Medium Risk — definition' for plain-text outputs."""
+    r = _RISK_BY_KEY[risk]
+    return f"R{r['number']} · {r['name']} — {r['definition']}"
 RISK_COLOR = {"LOW": "#10b981", "MEDIUM": "#f59e0b", "HIGH": "#ef4444"}
 
 # ---------------------------------------------------------------------------

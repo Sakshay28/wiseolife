@@ -7,6 +7,9 @@ from . import config, demo
 from . import model as ml
 from . import questions as qs
 from . import scoring as sc
+from . import teststate as ts
+from . import chatbot
+import copy
 
 
 def _responses(**kw):
@@ -217,6 +220,115 @@ def test_demo_predictions(bundle=None):
             ", ".join(f"{k}={v['expected_risk']}" for k, v in demo.DEMO_CANDIDATES.items()), ", ".join(res))
 
 
+# ---------------------------------------------------------------------------
+# TEST-STATE, RISK NUMBERS, WISEBOT
+# ---------------------------------------------------------------------------
+def test_risk_levels_canonical():
+    nums = [r["number"] for r in config.RISK_LEVELS]
+    keys = [r["key"] for r in config.RISK_LEVELS]
+    ok = nums == [1, 2, 3] and keys == config.RISK_CLASSES and all(r["definition"] for r in config.RISK_LEVELS)
+    return ("Risk levels: numbered R1-R3 in severity order with definitions", ok, "1,2,3 / LOW,MEDIUM,HIGH", f"{nums} / {keys}")
+
+
+def test_risk_number_in_exports():
+    from . import report as rp
+    b = demo.get_demo_features("WL-DEMO-01")
+    scores = sc.scores_from_feature_dict(dict(zip(config.FEATURE_NAMES, b)))
+    pred = {"risk": "MEDIUM", "confidence": 0.8, "probabilities": {"LOW": .1, "MEDIUM": .8, "HIGH": .1}}
+    res = {"candidate_id": "T", "timestamp": "2026-01-01T00:00:00", "source": "demo", "scores": scores,
+           "features": b, "prediction": pred}
+    text = (rp.generate_csv(res) + rp.generate_feature_row_csv(res)).decode()
+    ok = "R2" in text and config.risk_info("MEDIUM")["definition"] in text
+    return ("CSV exports show risk number with definition", ok, "R2 + definition", "found" if ok else "missing")
+
+
+def test_new_test_starts_at_question_1():
+    r = qs.empty_responses()
+    ok = ts.current_question(r, 0) == 1 and ts.section_range(0) == (1, 10) and ts.locate(1) == ("pss", 0, 0)
+    return ("Fresh test starts at Question 1", ok, "Q1, range 1-10", f"Q{ts.current_question(r, 0)}, {ts.section_range(0)}")
+
+
+def test_question_locate_round_trip():
+    ok = all(ts.section_range(ts.locate(n)[2])[0] <= n <= ts.section_range(ts.locate(n)[2])[1]
+             for n in range(1, 90))
+    return ("Question numbers 1-89 map to the right section", ok, "all consistent", "ok" if ok else "mismatch")
+
+
+def test_skipped_counting():
+    r = qs.empty_responses()
+    r["pss"][0] = 2
+    _, s0 = ts.build_status(r, set())                       # nothing passed yet
+    _, s1 = ts.build_status(r, {"pss"})                     # user moved past PSS with 9 blank
+    r["pss"][1] = 3                                         # answers a skipped question
+    _, s2 = ts.build_status(r, {"pss"})
+    _, s3 = ts.build_status(r, {"pss", "pss"})              # passing again must not double count
+    ok = (s0["skipped"] == 0 and s0["unanswered"] == 88 and s1["skipped"] == 9 and s1["unanswered"] == 79
+          and s2["skipped"] == 8 and s2["answered"] == 2 and s3 == s2
+          and s2["answered"] + s2["skipped"] + s2["unanswered"] == 89)
+    return ("Skipped counts: derive, update on answer, never double count", ok,
+            "0/9/8/8 skipped", f"{s0['skipped']}/{s1['skipped']}/{s2['skipped']}/{s3['skipped']}")
+
+
+def test_changing_answer_keeps_counts():
+    r = qs.empty_responses()
+    r["gad7"][0] = 1
+    _, a = ts.build_status(r, {"gad7"})
+    r["gad7"][0] = 3
+    _, b = ts.build_status(r, {"gad7"})
+    return ("Changing an answer does not change skipped/answered counts", a == b, "equal", f"{a['answered']} vs {b['answered']}")
+
+
+def test_responses_shape_guard():
+    good = qs.empty_responses()
+    bad = qs.empty_responses()
+    bad["mbi"] = bad["mbi"][:-1]
+    return ("Response-shape guard rejects a mismatched question bank",
+            ts.responses_valid(good) and not ts.responses_valid(bad) and not ts.responses_valid({}), "True/False/False", "ok")
+
+
+def test_scoring_ignores_skipped_flag():
+    """A skipped item is never counted as answered: it scores like any blank item."""
+    r = _responses(gad7=0)
+    r["gad7"][0] = None
+    s = sc.score_all(r)
+    return ("Skipped items are not treated as answered (result marked incomplete)",
+            s["missing"]["gad7"] == 1 and not s["complete"], "1 missing, incomplete", f"{s['missing']['gad7']} missing, complete={s['complete']}")
+
+
+def test_wisebot_is_read_only():
+    r = _responses(pss=2, gad7=1)
+    snapshot = copy.deepcopy(r)
+    ctx = {"question": 12, "section": "gad7", "progress": ts.build_status(r, {"pss"})[1]}
+    for q in ["Explain this question", "What does this section measure?", "How many questions have I skipped?",
+              "what do the risk levels mean", "explain question 5", "R3"]:
+        chatbot.get_response(q, None, ctx)
+    return ("WiseBot never modifies answers", r == snapshot, "unchanged", "unchanged" if r == snapshot else "CHANGED")
+
+
+def test_wisebot_explains_every_question():
+    ok = all("Q%d" % n in chatbot.explain_question(n) for n in range(1, 90))
+    return ("WiseBot can explain all 89 questions", ok, "89 explanations", "ok" if ok else "failure")
+
+
+def test_wisebot_risk_definitions():
+    a = chatbot.get_response("what does r3 mean")
+    ok = "R3" in a and config.risk_info("HIGH")["definition"] in a
+    return ("WiseBot answers risk-number questions from the canonical source", ok, "R3 + definition", a[:60])
+
+
+def test_wisebot_error_is_reported():
+    orig = chatbot.get_response
+    try:
+        def boom(*a, **k):
+            raise RuntimeError("simulated")
+        chatbot.get_response = boom
+        out = chatbot.safe_ask("hello")
+    finally:
+        chatbot.get_response = orig
+    return ("WiseBot failure becomes a retryable error, not a crash", out["ok"] is False and "try again" in out["error"].lower(),
+            "ok=False + message", str(out))
+
+
 SCORING_TESTS = [
     test_question_count, test_instrument_counts, test_pss_all_zero, test_pss_all_max,
     test_pss_reverse_formula, test_gad_zero_and_max, test_gad_bands, test_phq_zero_and_max,
@@ -225,6 +337,10 @@ SCORING_TESTS = [
     test_big5_neutral, test_big5_reverse, test_big5_range, test_feature_vector_length,
     test_feature_vector_order, test_no_composite_features, test_missing_values_handled,
     test_round_trip_feature_dict, test_label_rule_monotonic,
+    test_risk_levels_canonical, test_risk_number_in_exports, test_new_test_starts_at_question_1,
+    test_question_locate_round_trip, test_skipped_counting, test_changing_answer_keeps_counts,
+    test_responses_shape_guard, test_scoring_ignores_skipped_flag, test_wisebot_is_read_only,
+    test_wisebot_explains_every_question, test_wisebot_risk_definitions, test_wisebot_error_is_reported,
 ]
 MODEL_TESTS = [test_model_pipeline, test_model_determinism, test_demo_predictions]
 

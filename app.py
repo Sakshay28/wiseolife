@@ -16,10 +16,12 @@ This file is the presentation layer. All logic lives in the wiseolife/ package:
     ui.py               theme CSS, HTML components and Plotly charts
     selftest.py         scoring / model validation tests
 """
+import html
 from datetime import date, datetime
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from wiseolife import chatbot, config, demo, model as ml
 from wiseolife import questions as qs
@@ -27,10 +29,11 @@ from wiseolife import recommendations as rec
 from wiseolife import report as rp
 from wiseolife import scoring as sc
 from wiseolife import selftest, storage, ui
+from wiseolife import teststate as ts
 
 st.set_page_config(
     page_title=f"{config.APP_NAME} - {config.APP_SUBTITLE}",
-    page_icon=config.APP_ICON, layout="wide", initial_sidebar_state="expanded",
+    page_icon=config.APP_ICON, layout="wide", initial_sidebar_state="auto",
 )
 ui.inject_css()
 
@@ -65,31 +68,130 @@ def get_hr_cohort_cached(_bundle, n):
 # ===========================================================================
 # SESSION STATE
 # ===========================================================================
+# test_stage: "overview" (not started) -> "active" (answering) -> "review" (summary)
+#             -> "done" (submitted). Answers live ONLY in st.session_state.responses;
+# skipped / unanswered / progress are derived from it by wiseolife.teststate.
+STAGES = ("overview", "active", "review", "done")
+
+
 def init_state():
     defaults = {
         "page": "Home", "responses": qs.empty_responses(), "section_idx": 0,
-        "assessment_started": False, "result": None, "review": {}, "chat": [],
+        "test_stage": "overview", "passed_sections": [], "attempt_id": 0,
+        "submitted_attempt": None, "confirm_restart": False,
+        "pending_focus": None, "focus_nonce": 0,
+        "result": None, "review": {}, "chat": [],
         "candidate_id": "WL-001", "session_history": [], "last_saved_id": None,
         "journal_session": [],
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+    # Defensive: never run with a response set that does not match the question bank.
+    if not ts.responses_valid(st.session_state.responses):
+        reset_assessment()
+    if st.session_state.test_stage not in STAGES:
+        st.session_state.test_stage = "overview"
+    st.session_state.section_idx = min(max(int(st.session_state.section_idx), 0),
+                                       len(qs.INSTRUMENT_ORDER) - 1)
+
+
+def request_focus(question=None):
+    """One-shot request: scroll to / focus a question (or to the top when None).
+
+    Consumed by emit_focus() after the next render, so it never re-fires on later reruns."""
+    st.session_state.focus_nonce += 1
+    st.session_state.pending_focus = {"q": question, "nonce": st.session_state.focus_nonce}
 
 
 def goto(page_name):
+    """Navigate and rerun. Landing on a page always positions the view deliberately."""
     st.session_state.page = page_name
+    ss = st.session_state
+    if page_name == "Assessment" and ss.test_stage == "active":
+        request_focus(ts.current_question(ss.responses, ss.section_idx))
+    else:
+        request_focus(None)
     st.rerun()
 
 
 def reset_assessment():
-    st.session_state.responses = qs.empty_responses()
-    st.session_state.section_idx = 0
-    st.session_state.assessment_started = False
-    st.session_state.review = {}
-    st.session_state.last_saved_id = None
-    for key in [k for k in st.session_state.keys() if str(k).startswith("q_")]:
-        del st.session_state[key]
+    """Clean slate: no answers, no skipped markers, back to the overview screen."""
+    ss = st.session_state
+    ss.responses = qs.empty_responses()
+    ss.section_idx = 0
+    ss.test_stage = "overview"
+    ss.passed_sections = []
+    ss.confirm_restart = False
+    ss.review = {}
+    ss.last_saved_id = None
+    ss.pending_focus = None
+    for key in [k for k in ss.keys() if str(k).startswith("q_")]:
+        del ss[key]
+
+
+def begin_test():
+    """Start a NEW test or RESTART one - always at Question 1 with a clean slate."""
+    reset_assessment()
+    ss = st.session_state
+    ss.test_stage = "active"
+    ss.attempt_id += 1
+    ss.submitted_attempt = None
+    request_focus(1)
+
+
+def resume_test():
+    """Continue an unfinished test exactly where the user left it."""
+    ss = st.session_state
+    ss.confirm_restart = False
+    request_focus(ts.current_question(ss.responses, ss.section_idx) if ss.test_stage == "active" else None)
+
+
+def request_new_test():
+    """'Start new assessment' buttons: never silently erase an unfinished test."""
+    ss = st.session_state
+    if ts.has_progress(ss.test_stage, ss.responses):
+        ss.confirm_restart = True          # the Assessment page asks: Resume or Restart
+    else:
+        reset_assessment()
+    goto("Assessment")
+
+
+def jump_to_question(number):
+    """Open the section containing a global question number and focus that question."""
+    _key, _idx, section = ts.locate(number)
+    ss = st.session_state
+    ss.section_idx = section
+    ss.test_stage = "active"
+    ss.confirm_restart = False
+    request_focus(number)
+    st.rerun()
+
+
+def emit_focus():
+    """Run the pending one-shot scroll/focus request (if any) in the browser."""
+    ss = st.session_state
+    pf = ss.pending_focus
+    if not pf:
+        return
+    ss.pending_focus = None
+    q = pf["q"]
+    first = "true" if q and ts.section_range(ts.locate(q)[2])[0] == q else "false"
+    components.html(f"""<script>/* focus request {pf['nonce']} */
+(function () {{
+  var Q = {q if q else 'null'}, FIRST = {first}, tries = 0;
+  function run() {{
+    var d; try {{ d = window.parent.document; }} catch (e) {{ return; }}
+    var main = d.querySelector('[data-testid="stMain"]') || d.querySelector('section.main');
+    var target = Q ? d.querySelector('[data-q="' + Q + '"]') : null;
+    if (Q && !target && tries++ < 30) {{ return setTimeout(run, 80); }}
+    if (!target || FIRST) {{ if (main) main.scrollTo({{top: 0}}); window.parent.scrollTo(0, 0); }}
+    else {{ target.scrollIntoView({{block: 'start'}}); }}
+    if (target) {{ target.setAttribute('tabindex', '-1'); target.focus({{preventScroll: true}}); }}
+  }}
+  run();
+}})();
+</script>""", height=0)
 
 
 # ===========================================================================
@@ -103,11 +205,19 @@ def build_result(scores, features, candidate_id, source):
 
 
 def persist_result(result):
-    get_database()
-    st.session_state.last_saved_id = storage.save_assessment(result)
-    st.session_state.session_history.append({
+    """Save to history. Demo loads are kept in-session only and never duplicated."""
+    ss = st.session_state
+    if result["source"] == "demo":
+        if any(h.get("source") == "demo" and h["candidate_id"] == result["candidate_id"]
+               for h in ss.session_history):
+            return
+    else:
+        get_database()
+        ss.last_saved_id = storage.save_assessment(result)
+    ss.session_history.append({
         "candidate_id": result["candidate_id"], "created_at": result["timestamp"],
-        "risk": result["prediction"]["risk"], "confidence": result["prediction"]["confidence"],
+        "source": result["source"], "risk": result["prediction"]["risk"],
+        "confidence": result["prediction"]["confidence"],
         **dict(zip(config.FEATURE_NAMES, result["features"])),
     })
 
@@ -120,12 +230,23 @@ def run_assessment():
     persist_result(result)
 
 
+def submit_assessment():
+    """Score once per attempt. A second click / replay cannot create a duplicate record."""
+    ss = st.session_state
+    if ss.submitted_attempt != ss.attempt_id:
+        run_assessment()
+        ss.submitted_attempt = ss.attempt_id
+    ss.test_stage = "done"
+    goto("My Results")
+
+
 def load_demo_candidate(candidate_id):
     features = demo.get_demo_features(candidate_id)
     scores = sc.scores_from_feature_dict(dict(zip(config.FEATURE_NAMES, features)))
     result = build_result(scores, features, candidate_id, "demo")
     st.session_state.result = result
     st.session_state.review = {}
+    st.session_state.last_saved_id = None
     persist_result(result)
 
 
@@ -137,13 +258,14 @@ def require_result():
             "instantly, or start the real 89-question assessment.")
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("🎬 Load Demo Candidate", type="primary", key="req_demo", **ui.wide(st.button)):
+        if st.button("🎬 Load Demo Candidate", type="primary", key="req_demo", **ui.wide(st.button),
+                     help="Loads a synthetic example profile so every page has data. Does not touch a test in progress."):
             load_demo_candidate(demo.DEFAULT_DEMO)
             st.rerun()
     with c2:
-        if st.button("🧠 Start New Assessment", key="req_new", **ui.wide(st.button)):
-            reset_assessment()
-            goto("Assessment")
+        if st.button("🧠 Start New Assessment", key="req_new", **ui.wide(st.button),
+                     help="Begins the 89-question assessment at Question 1."):
+            request_new_test()
     return False
 
 
@@ -152,6 +274,51 @@ def demo_banner(result):
         cand = demo.DEMO_CANDIDATES.get(result["candidate_id"], {})
         ui.note(f"🎬 <b>Demo data active</b> - {result['candidate_id']}: {cand.get('title', 'sample profile')}. "
                 "These are synthetic values. The risk level shown is a genuine model prediction on those values.")
+
+
+# ===========================================================================
+# WISEBOT HELPERS (shared by the chat page and the in-test panel)
+# ===========================================================================
+def chat_context():
+    """Read-only snapshot of where the user is. WiseBot can explain it but never change it."""
+    ss = st.session_state
+    ctx = {"page": ss.page}
+    if ss.test_stage in ("active", "review"):
+        _rows, summary = ts.build_status(ss.responses, set(ss.passed_sections))
+        ctx["progress"] = summary
+        if ss.test_stage == "active":
+            ctx["section"] = qs.INSTRUMENT_ORDER[ss.section_idx]
+            ctx["question"] = ts.current_question(ss.responses, ss.section_idx)
+    return ctx
+
+
+def ask_wisebot(question, context=None, replace_index=None):
+    """Ask WiseBot. On failure store an error entry that the UI can retry."""
+    context = context if context is not None else chat_context()
+    with st.spinner("WiseBot is thinking..."):
+        out = chatbot.safe_ask(question, st.session_state.result, context)
+    entry = ({"role": "bot", "text": out["text"]} if out["ok"] else
+             {"role": "error", "text": out["error"], "retry": question, "context": context})
+    if replace_index is None:
+        st.session_state.chat.append({"role": "user", "text": question})
+        st.session_state.chat.append(entry)
+    else:
+        st.session_state.chat[replace_index] = entry
+
+
+def render_chat_messages(prefix, limit=None):
+    chat = st.session_state.chat
+    start = max(0, len(chat) - limit) if limit else 0
+    for i in range(start, len(chat)):
+        m = chat[i]
+        if m["role"] == "error":
+            ui.warn(f"⚠️ {m['text']}")
+            if st.button("🔁 Retry", key=f"{prefix}_retry_{i}"):
+                ask_wisebot(m["retry"], m.get("context"), replace_index=i)
+                st.rerun()
+        else:
+            ui.chat_bubble(m["text"], is_user=(m["role"] == "user"))
+        st.write("")
 
 
 # ===========================================================================
@@ -179,9 +346,13 @@ def render_sidebar():
         if st.button("🎬 Load Demo Candidate", key="sb_demo", type="primary", **ui.wide(st.button)):
             load_demo_candidate(chosen)
             goto("My Results")
-        if st.button("🧠 Start New Assessment", key="sb_new", **ui.wide(st.button)):
-            reset_assessment()
-            goto("Assessment")
+        if st.button("🧠 Start New Assessment", key="sb_new", **ui.wide(st.button),
+                     help="Begins the 89-question assessment at Question 1. If one is unfinished you can resume or restart."):
+            request_new_test()
+        if ts.has_progress(st.session_state.test_stage, st.session_state.responses):
+            _r, _s = ts.build_status(st.session_state.responses, set(st.session_state.passed_sections))
+            st.markdown(f"<div style='font-size:.75rem;color:#fde68a;margin-top:.3rem'>📝 Test in progress: "
+                        f"{_s['answered']}/{_s['total']} answered, {_s['skipped']} skipped</div>", unsafe_allow_html=True)
         st.markdown("---")
         result = st.session_state.result
         if result:
@@ -190,7 +361,7 @@ def render_sidebar():
                 f"<div style='background:rgba(255,255,255,.08);border-radius:12px;padding:.7rem .85rem;font-size:.8rem'>"
                 f"<div style='color:#a5b4fc;font-weight:700;font-size:.7rem'>ACTIVE ASSESSMENT</div>"
                 f"<div style='font-weight:700;margin-top:.2rem'>{result['candidate_id']}</div>"
-                f"<div style='margin-top:.25rem'>{config.RISK_EMOJI[pred['risk']]} {pred['risk']} "
+                f"<div style='margin-top:.25rem'>{config.RISK_EMOJI[pred['risk']]} {config.risk_label(pred['risk'], with_name=True)} "
                 f"({pred['confidence'] * 100:.0f}%)</div>"
                 f"<div style='color:#c7d2fe;font-size:.72rem;margin-top:.2rem'>{result['source'].title()} · "
                 f"{result['timestamp'][:10]}</div></div>", unsafe_allow_html=True)
@@ -212,9 +383,9 @@ def page_home():
             "human-in-the-loop review workflow.", badge=config.TAGLINE)
     c1, c2, _ = st.columns([1, 1, 2])
     with c1:
-        if st.button("🚀 Start Assessment", type="primary", key="home_start", **ui.wide(st.button)):
-            reset_assessment()
-            goto("Assessment")
+        if st.button("🚀 Start Assessment", type="primary", key="home_start", **ui.wide(st.button),
+                     help="Begin the 89-question assessment at Question 1."):
+            request_new_test()
     with c2:
         if st.button("📊 View Demo", key="home_demo", **ui.wide(st.button)):
             load_demo_candidate(demo.DEFAULT_DEMO)
@@ -222,9 +393,7 @@ def page_home():
     st.write("")
     stats = [(config.N_INSTRUMENTS, "Psychological Instruments"), (config.TOTAL_QUESTIONS, "Assessment Questions"),
              (len(config.FEATURE_NAMES), "Machine-Learning Features"), ("Random Forest", "Explainable AI Model")]
-    for col, (n, label) in zip(st.columns(4), stats):
-        with col:
-            ui.stat(n, label)
+    ui.stat_grid(stats)
     st.write("")
     ui.section("How WiseOLife works", "From questionnaire responses to a reviewed, explainable report.")
     ui.workflow(["👤 User", "📝 Questionnaire", "🧮 Scoring Engine", "🔢 14 Features", "🌳 Random Forest",
@@ -251,118 +420,289 @@ def page_home():
 # ===========================================================================
 # PAGE: ASSESSMENT
 # ===========================================================================
-def render_progress_header():
-    missing = sum(1 for k in qs.INSTRUMENT_ORDER for v in st.session_state.responses[k] if v is None)
-    answered = config.TOTAL_QUESTIONS - missing
-    pct = answered / config.TOTAL_QUESTIONS * 100
+def render_progress_header(section_idx):
+    """Progress card. Counts are DERIVED from the responses, so they are always in sync."""
+    ss = st.session_state
+    _rows, summ = ts.build_status(ss.responses, set(ss.passed_sections))
+    first, last = ts.section_range(section_idx)
+    current = ts.current_question(ss.responses, section_idx)
+    pct = summ["percent"]
     filled = int(round(pct / 10))
     bar = "█" * filled + "░" * (10 - filled)
     st.markdown(
         f"<div class='wl-card' style='margin-bottom:.8rem'><div style='display:flex;justify-content:space-between;"
-        f"font-weight:700;color:#0f172a'><span>Assessment Progress</span>"
-        f"<span>Question {min(answered + 1, config.TOTAL_QUESTIONS)} of {config.TOTAL_QUESTIONS}</span></div>"
+        f"flex-wrap:wrap;gap:.3rem;font-weight:700;color:#0f172a'>"
+        f"<span>Assessment Progress{ui.tip('Progress counts answered questions only. Skipped = left blank when you moved to the next section; you can return to them before submitting.')}</span>"
+        f"<span>Question {current} of {config.TOTAL_QUESTIONS}</span></div>"
         f"<div style='font-family:monospace;font-size:1.15rem;color:#4f46e5;letter-spacing:2px;margin-top:.3rem'>"
-        f"{bar} {pct:.0f}%</div><div class='wl-card-sub'>{answered} answered · {missing} remaining</div></div>",
+        f"{bar} {pct:.0f}%</div>"
+        f"<div class='wl-card-sub'>Section {section_idx + 1} of {len(qs.INSTRUMENT_ORDER)} · "
+        f"questions {first}-{last}</div>"
+        f"<div class='wl-counts'>"
+        f"<span class='wl-count wl-st-ok'>✓ {summ['answered']} answered</span>"
+        f"<span class='wl-count wl-st-skip'>⏭ {summ['skipped']} skipped</span>"
+        f"<span class='wl-count wl-st-open'>○ {summ['unanswered']} unanswered</span></div></div>",
         unsafe_allow_html=True)
-    st.progress(min(1.0, answered / config.TOTAL_QUESTIONS))
+    st.progress(min(1.0, summ["answered"] / config.TOTAL_QUESTIONS))
 
 
 def render_section(inst_key):
+    """One instrument's questions. Each question shows a live Answered/Skipped/Unanswered chip."""
+    ss = st.session_state
     inst = qs.get_instrument(inst_key)
     offset = qs.question_offset(inst_key)
     options = [label for _v, label in inst["scale"]]
     values = [v for v, _l in inst["scale"]]
+    section_passed = inst_key in ss.passed_sections
     st.markdown(
         f"<div style='background:linear-gradient(120deg,#312e81,#6d28d9);color:#fff;border-radius:16px;"
-        f"padding:1.1rem 1.3rem;margin-bottom:1rem'><div style='font-size:1.35rem;font-weight:800'>"
-        f"{inst['icon']} {inst['name']}</div><div style='font-size:.86rem;color:#ddd6fe'>{inst['full_name']} · "
+        f"padding:.9rem 1.2rem;margin-bottom:.7rem'><div style='font-size:1.25rem;font-weight:800'>"
+        f"{inst['icon']} {inst['name']}</div><div style='font-size:.84rem;color:#ddd6fe'>{inst['full_name']} · "
         f"{len(inst['items'])} items · scale {inst['scale_min']}-{inst['scale_max']}</div></div>",
         unsafe_allow_html=True)
     st.markdown(inst["instructions"])
-    reverse_nums = qs.reverse_item_numbers(inst_key)
-    if reverse_nums:
-        ui.note(f"🔄 <b>Reverse scoring applied</b> to item(s) {', '.join(map(str, reverse_nums))} of this "
-                f"instrument (marked 🔄). Formula: <code>new_score = max_scale - original_score</code>. "
-                "Answer normally - the scoring engine flips them for you.")
-    st.write("")
+    with st.expander("ℹ️ How to answer · answer scale", expanded=False):
+        st.markdown("Pick **one** option per question - the one that fits best. There are no right or wrong answers, "
+                    "and you can change an answer at any time.")
+        st.markdown("**Scale:** " + " · ".join(f"`{v}` {lab}" for v, lab in inst["scale"]))
+        reverse_nums = qs.reverse_item_numbers(inst_key)
+        if reverse_nums:
+            st.markdown(f"🔄 **Reverse scoring** applies to item(s) {', '.join(map(str, reverse_nums))} "
+                        "(marked 🔄): the engine flips them (`new_score = max_scale - original_score`) so a higher "
+                        "final score always points the same way. Answer normally.")
     for i, item in enumerate(inst["items"]):
         qnum = offset + i + 1
         marker = " 🔄" if item["reverse"] else ""
-        st.markdown(f"**Q{qnum}. {item['text']}{marker}**")
-        stored = st.session_state.responses[inst_key][i]
+        head = st.empty()                      # filled AFTER the radio so the chip is never one rerun stale
+        stored = ss.responses[inst_key][i]
         idx = values.index(stored) if stored in values else None
-        choice = st.radio(f"Question {qnum}", options, index=idx, key=f"q_{inst_key}_{i}",
+        choice = st.radio(f"Question {qnum}: {item['text']}", options, index=idx, key=f"q_{inst_key}_{i}",
                           label_visibility="collapsed", horizontal=len(options) <= 5)
-        st.session_state.responses[inst_key][i] = values[options.index(choice)] if choice is not None else None
-        st.markdown("<div style='height:.3rem'></div>", unsafe_allow_html=True)
+        value = values[options.index(choice)] if choice is not None else None
+        ss.responses[inst_key][i] = value
+        state = "answered" if value is not None else ("skipped" if section_passed else "unanswered")
+        head.markdown(
+            f"<div class='wl-qhead' data-q='{qnum}' tabindex='-1' role='heading' aria-level='3'>"
+            f"<span class='wl-qnum'>Q{qnum}.</span> {html.escape(item['text'])}{marker}{ui.status_chip(state)}</div>",
+            unsafe_allow_html=True)
+
+
+def _go_section(new_idx):
+    ss = st.session_state
+    ss.section_idx = new_idx
+    request_focus(ts.section_range(new_idx)[0])
+    st.rerun()
+
+
+def _pass_section(key):
+    """Moving past a section turns its blank questions into 'skipped' (derived, never double counted)."""
+    if key not in st.session_state.passed_sections:
+        st.session_state.passed_sections.append(key)
+
+
+def render_chat_popover(prefix):
+    """WiseBot inside the test: explains the current question/section/risk levels, read-only."""
+    with st.popover("💬 Ask WiseBot", help="Ask about this question, section or the risk levels. "
+                                           "Chatting never changes your answers or progress."):
+        st.caption("Read-only helper - your answers and progress are not affected.")
+        ctx = chat_context()
+        cols = st.columns(2)
+        for i, q in enumerate(chatbot.IN_TEST_QUESTIONS):
+            with cols[i % 2]:
+                if st.button(q, key=f"{prefix}_q{i}", **ui.wide(st.button)):
+                    ask_wisebot(q, ctx)
+        with st.form(f"{prefix}_form", clear_on_submit=True):
+            text = st.text_input("Your question", placeholder="e.g. explain question 5",
+                                 label_visibility="collapsed")
+            sent = st.form_submit_button("Send", **ui.wide(st.form_submit_button))
+        if sent and text.strip():
+            ask_wisebot(text.strip(), ctx)
+        render_chat_messages(prefix, limit=6)
+
+
+def render_overview():
+    ss = st.session_state
+    overview = [(config.TOTAL_QUESTIONS, "Questions"), (config.N_INSTRUMENTS, "Instruments"),
+                (f"{config.ESTIMATED_MINUTES} min", "Estimated time"), (len(config.FEATURE_NAMES), "AI features")]
+    ui.stat_grid(overview)
+    st.write("")
+    rows = []
+    for k in qs.INSTRUMENT_ORDER:
+        inst = qs.get_instrument(k)
+        rev = qs.reverse_item_numbers(k)
+        rows.append({"Instrument": f"{inst['icon']} {inst['name']}", "Measures": inst["full_name"],
+                     "Items": len(inst["items"]), "Scale": f"{inst['scale_min']} - {inst['scale_max']}",
+                     "Reverse-scored items": ", ".join(map(str, rev)) if rev else "-"})
+    st.dataframe(pd.DataFrame(rows), hide_index=True, **ui.wide(st.dataframe))
+    ss.candidate_id = st.text_input(
+        "Candidate ID (no real name is required)", value=ss.candidate_id,
+        help="Any label you like, e.g. WL-001. WiseOLife never asks for your name, email or phone number.")
+    ui.note("▶️ The assessment always starts at <b>Question 1</b>. Your answers are kept in this browser session; "
+            "you can go back, change answers and review skipped questions before submitting.")
+    ui.disclaimer(config.MAIN_DISCLAIMER + " " + config.WORDING_NOTICE)
+    st.write("")
+    c1, c2 = st.columns([1, 3])
+    with c1:
+        if st.button("▶️ Begin Assessment", type="primary", **ui.wide(st.button),
+                     help="Start the 89-question assessment at Question 1."):
+            begin_test()
+            st.rerun()
+    with c2:
+        if st.button("🎬 Skip - load a demo candidate instead", **ui.wide(st.button),
+                     help="See the full product with a synthetic profile instead of answering 89 questions."):
+            load_demo_candidate(demo.DEFAULT_DEMO)
+            goto("My Results")
+
+
+def render_restart_choice():
+    """Start-new vs restart vs resume: asked explicitly, never decided silently."""
+    ss = st.session_state
+    _rows, summ = ts.build_status(ss.responses, set(ss.passed_sections))
+    resume_q = ts.current_question(ss.responses, ss.section_idx) if ss.test_stage == "active" else None
+    ui.warn(f"<b>You have an unfinished assessment</b> - {summ['answered']} of {summ['total']} answered, "
+            f"{summ['skipped']} skipped. Resume it, or restart from Question 1 (this erases your current answers).")
+    c1, c2 = st.columns(2)
+    with c1:
+        label = f"▶️ Resume at Question {resume_q}" if resume_q else "▶️ Resume (review screen)"
+        if st.button(label, type="primary", key="choice_resume", **ui.wide(st.button),
+                     help="Keep every saved answer and continue where you stopped."):
+            resume_test()
+            st.rerun()
+    with c2:
+        if st.button("🔁 Restart from Question 1", key="choice_restart", **ui.wide(st.button),
+                     help="Erase the current answers and start a fresh attempt at Question 1."):
+            begin_test()
+            st.rerun()
+
+
+def render_active():
+    ss = st.session_state
+    idx = ss.section_idx
+    inst_key = qs.INSTRUMENT_ORDER[idx]
+    progress_slot = st.container()          # filled after the section renders (reflects this run's answers)
+    top = st.columns([3, 1])
+    top[0].caption(f"Section {idx + 1} of {len(qs.INSTRUMENT_ORDER)} · answers save automatically as you select them")
+    with top[1]:
+        render_chat_popover("chat_test")
+    render_section(inst_key)
+    with progress_slot:
+        render_progress_header(idx)
+    st.markdown("---")
+    blank = sum(1 for v in ss.responses[inst_key] if v is None)
+    if blank:
+        st.warning(f"{blank} question(s) in this section are blank. If you continue they are counted as "
+                   "**skipped** - you can come back to them from the review screen before submitting.")
+    is_last = idx == len(qs.INSTRUMENT_ORDER) - 1
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        if st.button("← Back", disabled=idx == 0, **ui.wide(st.button), help="Previous section. Your answers are kept."):
+            _go_section(idx - 1)
+    with c2:
+        if not is_last:
+            if st.button("Next →", type="primary", **ui.wide(st.button),
+                         help="Next section. Blank questions here will be marked as skipped."):
+                _pass_section(inst_key)
+                _go_section(idx + 1)
+        elif st.button("📋 Review & Submit", type="primary", **ui.wide(st.button),
+                       help="See answered / skipped counts and submit."):
+            _pass_section(inst_key)
+            ss.test_stage = "review"
+            request_focus(None)
+            st.rerun()
+    with c3:
+        if st.button("💾 Save & Continue", **ui.wide(st.button),
+                     help="Answers are already saved in this browser session as you select them."):
+            st.success("Progress saved in this browser session. Come back to this page any time to resume.")
+    with c4:
+        if st.button("🔁 Restart", **ui.wide(st.button),
+                     help="Asks for confirmation, then restarts at Question 1."):
+            ss.confirm_restart = True
+            st.rerun()
+
+
+def render_review():
+    ss = st.session_state
+    rows, summ = ts.build_status(ss.responses, set(ss.passed_sections))
+    ui.section("📋 Review before submitting", "Check what is answered, skipped or unanswered. You can still go back.",
+               help="Skipped = left blank when you moved on. Skipped and unanswered questions are scored at the scale "
+                    "default and the result is marked incomplete.")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        ui.card("✓ Answered", f"{summ['answered']} / {summ['total']}", f"{summ['percent']:.0f}% complete")
+    with c2:
+        ui.card("⏭ Skipped", str(summ["skipped"]), "Left blank when moving on",
+                help="You passed these questions without answering. Go back to answer them.")
+    with c3:
+        ui.card("○ Unanswered", str(summ["unanswered"]), "Not reached yet",
+                help="Questions in sections you have not completed.")
+    st.progress(min(1.0, summ["answered"] / summ["total"]))
+    blank_rows = [r for r in rows if not r["answered"]]
+    if not blank_rows:
+        ui.ok("✅ All 89 questions are answered. You are ready to submit.")
+    else:
+        ui.warn(f"<b>{len(blank_rows)} question(s) are blank.</b> They will not be treated as answered; they are scored "
+                "at the scale default and the result will be marked <b>incomplete</b>.")
+        first_skipped = next((r for r in blank_rows if r["skipped"]), blank_rows[0])
+        if st.button(f"↩️ Go to first {'skipped' if first_skipped['skipped'] else 'unanswered'} question "
+                     f"(Q{first_skipped['number']})", type="primary", key="rev_first"):
+            jump_to_question(first_skipped["number"])
+        for key in qs.INSTRUMENT_ORDER:
+            inst_rows = [r for r in blank_rows if r["key"] == key]
+            if not inst_rows:
+                continue
+            sk = [f"Q{r['number']}" for r in inst_rows if r["skipped"]]
+            un = [f"Q{r['number']}" for r in inst_rows if r["unanswered"]]
+            text = " · ".join(filter(None, [("⏭ Skipped: " + ", ".join(sk)) if sk else "",
+                                            ("○ Unanswered: " + ", ".join(un)) if un else ""]))
+            cols = st.columns([4, 1])
+            cols[0].markdown(f"**{qs.get_instrument(key)['name']}** - {text}")
+            if cols[1].button("Go", key=f"rev_go_{key}", help=f"Open the first blank {qs.get_instrument(key)['name']} question",
+                              **ui.wide(st.button)):
+                jump_to_question(inst_rows[0]["number"])
+    st.write("")
+    confirmed = True
+    if blank_rows:
+        confirmed = st.checkbox(f"I understand {len(blank_rows)} blank question(s) will be left unscored and the result "
+                                "marked incomplete.", key="rev_confirm")
+    c1, c2, _ = st.columns([1, 1, 2])
+    with c1:
+        if st.button("← Back to questions", **ui.wide(st.button)):
+            ss.test_stage = "active"
+            request_focus(ts.current_question(ss.responses, ss.section_idx))
+            st.rerun()
+    with c2:
+        if st.button("✅ Submit & Analyse", type="primary", disabled=not confirmed, **ui.wide(st.button),
+                     help="Scores your answers, builds the 14-feature vector and runs the model."):
+            submit_assessment()
+
+
+def render_done():
+    ui.ok("✅ <b>Your assessment has been submitted.</b> Your results are ready.")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("📊 View my results", type="primary", key="done_results", **ui.wide(st.button)):
+            goto("My Results")
+    with c2:
+        if st.button("🧠 Start a new assessment", key="done_new", **ui.wide(st.button),
+                     help="Begins a fresh test at Question 1. Your submitted results stay available."):
+            reset_assessment()
+            goto("Assessment")
 
 
 def page_assessment():
+    ss = st.session_state
     ui.section("🧠 Wellness Assessment", "Six instruments, one section at a time. Your answers stay in this browser session.")
-    if not st.session_state.assessment_started:
-        overview = [(config.TOTAL_QUESTIONS, "Questions"), (config.N_INSTRUMENTS, "Instruments"),
-                    (f"{config.ESTIMATED_MINUTES} min", "Estimated time"), (len(config.FEATURE_NAMES), "AI features")]
-        for col, (n, label) in zip(st.columns(4), overview):
-            with col:
-                ui.stat(n, label)
-        st.write("")
-        rows = []
-        for k in qs.INSTRUMENT_ORDER:
-            inst = qs.get_instrument(k)
-            rev = qs.reverse_item_numbers(k)
-            rows.append({"Instrument": f"{inst['icon']} {inst['name']}", "Measures": inst["full_name"],
-                         "Items": len(inst["items"]), "Scale": f"{inst['scale_min']} - {inst['scale_max']}",
-                         "Reverse-scored items": ", ".join(map(str, rev)) if rev else "-"})
-        st.dataframe(pd.DataFrame(rows), hide_index=True, **ui.wide(st.dataframe))
-        st.session_state.candidate_id = st.text_input(
-            "Candidate ID (no real name is required)", value=st.session_state.candidate_id,
-            help="WiseOLife never asks for your name, email or phone number.")
-        ui.disclaimer(config.MAIN_DISCLAIMER + " " + config.WORDING_NOTICE)
-        st.write("")
-        c1, c2 = st.columns([1, 3])
-        with c1:
-            if st.button("▶️ Begin Assessment", type="primary", **ui.wide(st.button)):
-                st.session_state.assessment_started = True
-                st.rerun()
-        with c2:
-            if st.button("🎬 Skip - load a demo candidate instead", **ui.wide(st.button)):
-                load_demo_candidate(demo.DEFAULT_DEMO)
-                goto("My Results")
-        return
-
-    # The progress header slot is filled AFTER the section renders, so it reflects this run's answers.
-    progress_slot = st.container()
-    idx = st.session_state.section_idx
-    inst_key = qs.INSTRUMENT_ORDER[idx]
-    st.caption(f"Section {idx + 1} of {len(qs.INSTRUMENT_ORDER)}")
-    render_section(inst_key)
-    with progress_slot:
-        render_progress_header()
-    st.markdown("---")
-    unanswered = sum(1 for v in st.session_state.responses[inst_key] if v is None)
-    if unanswered:
-        st.warning(f"{unanswered} question(s) in this section are unanswered. You may continue - unanswered "
-                   "items use the scale default and the result is marked incomplete.")
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        if st.button("← Back", disabled=idx == 0, **ui.wide(st.button)):
-            st.session_state.section_idx = max(0, idx - 1)
-            st.rerun()
-    with c2:
-        if idx < len(qs.INSTRUMENT_ORDER) - 1:
-            if st.button("Next →", type="primary", **ui.wide(st.button)):
-                st.session_state.section_idx = idx + 1
-                st.rerun()
-        elif st.button("✅ Submit & Analyse", type="primary", **ui.wide(st.button)):
-            run_assessment()
-            goto("My Results")
-    with c3:
-        if st.button("💾 Save & Continue", **ui.wide(st.button)):
-            st.success("Progress saved in this browser session. Come back to this page any time.")
-    with c4:
-        if st.button("🔄 Reset", **ui.wide(st.button)):
-            reset_assessment()
-            st.rerun()
+    if ss.confirm_restart and ts.has_progress(ss.test_stage, ss.responses):
+        render_restart_choice()
+    elif ss.test_stage == "active":
+        render_active()
+    elif ss.test_stage == "review":
+        render_review()
+    elif ss.test_stage == "done":
+        render_done()
+    else:
+        ss.confirm_restart = False
+        render_overview()
 
 
 # ===========================================================================
@@ -390,13 +730,16 @@ def page_results():
     for row in (0, 3):
         for col, card, pct in zip(st.columns(3), cards[row:row + 3], pcts[row:row + 3]):
             with col:
-                ui.score_card(card["icon"], card["title"], card["value"], card["level"], card["caption"], pct)
+                ui.score_card(card["icon"], card["title"], card["value"], card["level"], card["caption"], pct,
+                              help=card.get("help"))
         st.write("")
 
     ui.section("🤖 AI Risk Indication")
     ui.risk_banner(pred["risk"], pred["confidence"], config.AI_DISCLAIMER)
     if pred["risk"] == "HIGH":
         ui.warn("⚠️ <b>Professional Review Recommended</b> — status: Pending Review (Tier 2).")
+    with st.expander("ℹ️ What do the risk levels R1-R3 mean?"):
+        ui.risk_legend()
     c1, c2 = st.columns([3, 2])
     with c1:
         st.plotly_chart(ui.chart_scores_bar(scores), **ui.wide(st.plotly_chart))
@@ -404,7 +747,9 @@ def page_results():
         st.plotly_chart(ui.chart_probabilities(pred["probabilities"]), **ui.wide(st.plotly_chart))
 
     st.write("")
-    ui.section("🧠 14-Feature AI Input Vector", "The exact numbers passed to the Random Forest classifier.")
+    ui.section("🧠 14-Feature AI Input Vector", "The exact numbers passed to the Random Forest classifier.",
+               help="A feature is one number the model uses. WiseOLife turns 89 answers into these 14 scores; "
+                    "the model sees only these.")
     fmap = dict(zip(config.FEATURE_NAMES, result["features"]))
     for group_name, icon, names in config.FEATURE_GROUPS:
         st.markdown(f"**{icon} {group_name}**")
@@ -412,7 +757,8 @@ def page_results():
         for col, name in zip(cols, names):
             lo, hi = config.FEATURE_RANGES[name]
             with col:
-                ui.feature_chip(f"{config.FEATURE_SHORT[name]} ({lo}-{hi})", fmap[name], isinstance(hi, float))
+                ui.feature_chip(f"{config.FEATURE_SHORT[name]} ({lo}-{hi})", fmap[name], isinstance(hi, float),
+                                help=config.FEATURE_HELP[name])
     st.markdown("**Model input vector** (in `FEATURE_NAMES` order)")
     ui.feature_vector_block(result["features"])
     st.caption("Order: " + " · ".join(f"{i}. {config.FEATURE_SHORT[n]}" for i, n in enumerate(config.FEATURE_NAMES, 1)))
@@ -423,9 +769,11 @@ def page_results():
     with tabs[0]:
         p = scores["pss"]
         c1, c2, c3 = st.columns(3)
-        c1.metric("Raw score (no reversal)", p["raw"] if p["raw"] is not None else "n/a (demo)")
-        c2.metric("Adjusted score (reported)", f"{p['score']} / 40")
-        c3.metric("Interpretation", p["level"])
+        c1.metric("Raw score (no reversal)", p["raw"] if p["raw"] is not None else "n/a (demo)",
+                  help="Simple sum of your 10 answers before any items are flipped.")
+        c2.metric("Adjusted score (reported)", f"{p['score']} / 40",
+                  help="Score after reverse scoring - this is the number used by the model.")
+        c3.metric("Interpretation", p["level"], help="Low 0-13 · Moderate 14-26 · High 27-40.")
         ui.note(f"🔄 <b>Reverse scoring applied</b> to PSS items {', '.join(map(str, p['reverse_items']))}. "
                 f"Formula: <code>new_score = max_scale - original_score</code>. Bands: 0-13 Low · 14-26 Moderate · 27-40 High.")
         st.caption("This build follows the WiseOLife project specification (items 4-8 reversed). The widely "
@@ -434,15 +782,15 @@ def page_results():
     with tabs[1]:
         g = scores["gad7"]
         c1, c2 = st.columns(2)
-        c1.metric("GAD-7 total", f"{g['score']} / 21")
-        c2.metric("Interpretation", g["level"])
+        c1.metric("GAD-7 total", f"{g['score']} / 21", help="Sum of 7 items, each scored 0-3.")
+        c2.metric("Interpretation", g["level"], help="0-4 Minimal · 5-9 Mild · 10-14 Moderate · 15-21 Severe.")
         st.progress(min(1.0, g["score"] / 21))
         st.caption("Bands: 0-4 Minimal · 5-9 Mild · 10-14 Moderate · 15-21 Severe")
     with tabs[2]:
         p = scores["phq9"]
         c1, c2 = st.columns(2)
-        c1.metric("PHQ-9 total", f"{p['score']} / 27")
-        c2.metric("Interpretation", p["level"])
+        c1.metric("PHQ-9 total", f"{p['score']} / 27", help="Sum of 9 items, each scored 0-3.")
+        c2.metric("Interpretation", p["level"], help="0-4 Minimal · 5-9 Mild · 10-14 Moderate · 15-19 Moderately Severe · 20-27 Severe.")
         st.progress(min(1.0, p["score"] / 27))
         st.caption("Bands: 0-4 Minimal · 5-9 Mild · 10-14 Moderate · 15-19 Moderately Severe · 20-27 Severe")
         if p.get("safety_flag"):
@@ -511,10 +859,14 @@ def page_ai_insights():
     ui.warn("These are evaluation metrics on a held-out split of the <b>synthetic demo dataset</b>. They measure how "
             "well the model reproduces the project's rule-based labelling. They are <b>not</b> clinical accuracy.")
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Accuracy", f"{metrics['accuracy'] * 100:.2f}%")
-    m2.metric("Precision (macro)", f"{metrics['precision'] * 100:.2f}%")
-    m3.metric("Recall (macro)", f"{metrics['recall'] * 100:.2f}%")
-    m4.metric("F1 score (macro)", f"{metrics['f1'] * 100:.2f}%")
+    m1.metric("Accuracy", f"{metrics['accuracy'] * 100:.2f}%",
+              help="Share of test profiles given the same label as the labelling rule. Synthetic data only.")
+    m2.metric("Precision (macro)", f"{metrics['precision'] * 100:.2f}%",
+              help="When the model says a class, how often it is right - averaged over LOW/MEDIUM/HIGH.")
+    m3.metric("Recall (macro)", f"{metrics['recall'] * 100:.2f}%",
+              help="Of all profiles truly in a class, how many the model finds - averaged over classes.")
+    m4.metric("F1 score (macro)", f"{metrics['f1'] * 100:.2f}%",
+              help="Balance of precision and recall (their harmonic mean), averaged over classes.")
     st.caption(f"Train / test split: {metrics['train_size']} / {metrics['test_size']}, stratified, "
                f"random_state={config.RANDOM_STATE}.")
     c1, c2 = st.columns(2)
@@ -525,7 +877,11 @@ def page_ai_insights():
     with st.expander("📄 Full classification report (scikit-learn)"):
         st.code(bundle["report_text"], language="text")
 
-    ui.section("🔍 Why did the AI predict this?", "Random Forest feature importance across all 14 inputs.")
+    ui.section("🎚️ Risk levels", "Number, name and definition of each risk class the model predicts.")
+    ui.risk_legend()
+    ui.section("🔍 Why did the AI predict this?", "Random Forest feature importance across all 14 inputs.",
+               help="Feature importance shows how much each input helped the forest separate the classes overall. "
+                    "It shows association, not cause.")
     st.plotly_chart(ui.chart_importance(bundle["importance"]), **ui.wide(st.plotly_chart))
     with st.expander("📋 Feature importance table"):
         st.dataframe(pd.DataFrame([{"Rank": i, "Feature": r["label"], "Importance": f"{r['percent']:.2f}%"}
@@ -651,7 +1007,7 @@ def page_progress():
         "Date": r["date"], "PSS": r["pss_score"], "GAD-7": r["gad7_score"], "PHQ-9": r["phq9_score"],
         "DASS-S": r["dass_stress"], "MBI EE": r["mbi_emotional_exhaustion"],
         "MBI PA": r["mbi_personal_accomplishment"], "Neuroticism": r["neuroticism"],
-        "Risk": r.get("risk") or "demo"} for r in reversed(rows)]), hide_index=True, **ui.wide(st.dataframe))
+        "Risk": config.risk_label(r["risk"]) if r.get("risk") in config.RISK_CLASSES else "demo"} for r in reversed(rows)]), hide_index=True, **ui.wide(st.dataframe))
     if storage.db_available():
         s = storage.stats()
         st.caption(f"Local database: {s['assessments']} assessment(s), {s['journal']} journal entr(y/ies) in wiseolife_data.db.")
@@ -668,9 +1024,9 @@ def page_journal():
     with st.form("journal_form", clear_on_submit=True):
         c1, c2, c3 = st.columns(3)
         entry_date = c1.date_input("Date", value=date.today())
-        mood = c2.slider("Mood (1 = very low, 10 = very good)", 1, 10, 6)
-        stress = c3.slider("Stress (1 = none, 10 = extreme)", 1, 10, 5)
-        sleep_hours = st.slider("Hours of sleep last night", 0.0, 12.0, 7.0, 0.5)
+        mood = c2.slider("Mood (1 = very low, 10 = very good)", 1, 10, 6, help="Your overall mood today.")
+        stress = c3.slider("Stress (1 = none, 10 = extreme)", 1, 10, 5, help="How stressed you felt today.")
+        sleep_hours = st.slider("Hours of sleep last night", 0.0, 12.0, 7.0, 0.5, help="Hours slept, in half-hour steps.")
         note = st.text_area("How are you feeling today?", placeholder="A sentence or two is enough...")
         submitted = st.form_submit_button("💾 Save entry", type="primary")
     if submitted:
@@ -699,35 +1055,32 @@ def page_journal():
 # ===========================================================================
 # PAGE: WISEBOT
 # ===========================================================================
-def _ask_bot(question):
-    st.session_state.chat.append(("user", question))
-    st.session_state.chat.append(("bot", chatbot.get_response(question, st.session_state.result)))
-
-
 def page_chatbot():
     ui.section("💬 WiseBot - Wellness Assistant",
-               "A rule-based assistant. No external API or API key is required, so the app always works offline.")
-    ui.note("WiseBot answers from a fixed knowledge base. It can explain the instruments, the scoring, the model - "
-            "and, once an assessment is loaded, your own scores.")
+               "A rule-based assistant. No external API or API key is required, so the app always works offline.",
+               help="WiseBot answers from a fixed knowledge base and from read-only context (your current question, "
+                    "section, progress and loaded results). It cannot change answers or scores.")
+    ui.note("WiseBot can explain the instruments, individual questions (try <i>'explain question 12'</i>), the "
+            "<b>risk levels R1-R3</b>, the model - and, once an assessment is loaded, your own scores.")
+    ctx = chat_context()
     st.markdown("**Try one of these:**")
     cols = st.columns(4)
     for i, q in enumerate(chatbot.SUGGESTED_QUESTIONS):
         with cols[i % 4]:
             if st.button(q, key=f"sugg_{i}", **ui.wide(st.button)):
-                _ask_bot(q)
+                ask_wisebot(q, ctx)
                 st.rerun()
     st.markdown("---")
     if not st.session_state.chat:
         ui.chat_bubble("Hello! I am <b>WiseBot</b> 🤖. Ask me about PSS, GAD-7, PHQ-9, DASS-21, burnout, the Big Five, "
-                       "the 14 features, Random Forest - or about your own scores.", render_markdown=False)
-    for role, text in st.session_state.chat:
-        ui.chat_bubble(text, is_user=(role == "user"))
-        st.write("")
+                       "the 14 features, the risk levels - or about your own scores.", render_markdown=False)
+    render_chat_messages("chat_page")
     prompt = st.chat_input("Ask WiseBot a question...")
     if prompt:
-        _ask_bot(prompt)
+        ask_wisebot(prompt, ctx)
         st.rerun()
-    if st.session_state.chat and st.button("🗑️ Clear conversation"):
+    if st.session_state.chat and st.button("🗑️ Clear conversation",
+                                           help="Clears the chat only - your test, answers and results are untouched."):
         st.session_state.chat = []
         st.rerun()
 
@@ -780,13 +1133,16 @@ def page_professional_review():
     default_status = existing.get("status", "Pending Review" if plan["review_recommended"] else "Not Required")
     with st.form("review_form"):
         c1, c2 = st.columns(2)
-        reviewer = c1.text_input("Reviewer name / ID", value=existing.get("reviewer", ""), placeholder="e.g. Reviewer-01")
+        reviewer = c1.text_input("Reviewer name / ID", value=existing.get("reviewer", ""), placeholder="e.g. Reviewer-01",
+                                 help="Simulated reviewer label. Use any ID - no real clinician is connected.")
         status = c2.selectbox("Review status", status_options, index=status_options.index(default_status)
-                              if default_status in status_options else 0)
+                              if default_status in status_options else 0,
+                              help="Where this case is in Tier 2. HIGH-risk cases default to Pending Review.")
         decision = st.selectbox("Final review decision", decision_options,
                                 index=decision_options.index(existing["decision"])
                                 if existing.get("decision") in decision_options else 0)
-        notes = st.text_area("Reviewer notes", value=existing.get("notes", ""), placeholder="Observations, context, next steps...")
+        notes = st.text_area("Reviewer notes", value=existing.get("notes", ""), placeholder="Observations, context, next steps...",
+                             help="Free-text notes. They are included in the PDF report.")
         saved = st.form_submit_button("💾 Save review decision", type="primary")
     if saved:
         st.session_state.review = {"reviewer": reviewer, "status": status, "decision": decision, "notes": notes,
@@ -811,18 +1167,23 @@ def page_hr_dashboard():
                "Anonymised, aggregated wellness reporting. No item responses or personal identifiers are exposed.")
     ui.warn("<b>Simulated cohort.</b> These candidates are synthetic profiles scored by the real model. "
             + config.EMPLOYMENT_DISCLAIMER)
-    n = st.slider("Cohort size to display", 6, 40, 18, step=2)
+    ui.risk_legend()
+    n = st.slider("Cohort size to display", 6, 40, 18, step=2,
+                  help="How many synthetic candidates to include in the simulated cohort.")
     cohort = get_hr_cohort_cached(bundle, n)
     counts = {c: sum(1 for r in cohort if r["risk"] == c) for c in config.RISK_CLASSES}
     pending = sum(1 for r in cohort if r["review_status"] == "Pending Review")
     cols = st.columns(5)
     with cols[0]:
         ui.card("Candidates assessed", str(len(cohort)), "Anonymised IDs only")
-    for col, cls, emoji in zip(cols[1:4], config.RISK_CLASSES, ["🟢", "🟡", "🔴"]):
+    for col, cls in zip(cols[1:4], config.RISK_CLASSES):
+        info = config.risk_info(cls)
         with col:
-            ui.card(f"{emoji} {cls.title()} risk", str(counts[cls]), f"{counts[cls] / len(cohort) * 100:.0f}% of cohort")
+            ui.card(f"{config.RISK_EMOJI[cls]} R{info['number']} · {info['name']}", str(counts[cls]),
+                    f"{counts[cls] / len(cohort) * 100:.0f}% of cohort", help=info["definition"])
     with cols[4]:
-        ui.card("Pending human review", str(pending), "Routed to Tier 2")
+        ui.card("Pending human review", str(pending), "Routed to Tier 2",
+                help="HIGH-risk cases waiting for a reviewer (Tier 2). A simulated workflow.")
     st.write("")
     c1, c2 = st.columns([2, 3])
     with c1:
@@ -835,10 +1196,12 @@ def page_hr_dashboard():
         st.dataframe(avg, **ui.wide(st.dataframe))
         st.caption("Aggregated figures only - individual responses are never shown on this tier.")
     ui.section("📋 Candidate register")
-    risk_filter = st.multiselect("Filter by risk level", config.RISK_CLASSES, default=config.RISK_CLASSES)
+    risk_filter = st.multiselect("Filter by risk level", config.RISK_CLASSES, default=config.RISK_CLASSES,
+                                 format_func=lambda c: config.risk_label(c, with_name=True),
+                                 help="Show only the selected risk levels (R1 Low, R2 Medium, R3 High).")
     table = pd.DataFrame([{
         "Candidate ID": r["candidate_id"], "Assessment Date": r["date"],
-        "Risk Level": f"{config.RISK_EMOJI[r['risk']]} {r['risk']}", "Confidence": f"{r['confidence']:.1f}%",
+        "Risk Level": f"{config.RISK_EMOJI[r['risk']]} {config.risk_label(r['risk'], with_name=True)}", "Confidence": f"{r['confidence']:.1f}%",
         "Stress (PSS)": r["pss"], "Anxiety (GAD-7)": r["gad7"], "Burnout (MBI EE)": r["burnout_ee"],
         "Review Status": r["review_status"]} for r in cohort if r["risk"] in risk_filter])
     st.dataframe(table, hide_index=True, **ui.wide(st.dataframe))
@@ -866,7 +1229,8 @@ def page_reports():
     with c1:
         ui.card("Candidate", result["candidate_id"], result["source"].title())
     with c2:
-        ui.card("Risk indication", f"{config.RISK_EMOJI[pred['risk']]} {pred['risk']}", f"{pred['confidence'] * 100:.1f}% confidence")
+        ui.card("Risk indication", f"{config.RISK_EMOJI[pred['risk']]} {config.risk_label(pred['risk'])}", f"{pred['confidence'] * 100:.1f}% confidence",
+                help=config.risk_info(pred["risk"])["definition"])
     with c3:
         ui.card("Instruments", f"{config.N_INSTRUMENTS} / {config.TOTAL_QUESTIONS} items", "Full battery")
     with c4:
@@ -961,6 +1325,8 @@ An algorithm trained on synthetic data cannot understand a person's context. Tie
 Real, ethically-approved data · SHAP explanations · multi-language item banks · longitudinal modelling ·
 authentication and encryption · a formal validation study before any non-academic use.
 """)
+    ui.section("🎚️ Risk levels", "Every risk shown in WiseOLife uses these numbers, names and definitions.")
+    ui.risk_legend()
     ui.section("👥 Team & Contributions")
     ui.note("Editable placeholders - set names and roll numbers in <code>wiseolife/config.py</code> → <code>TEAM_MEMBERS</code>.")
     for col, member in zip(st.columns(3), config.TEAM_MEMBERS):
@@ -1024,6 +1390,7 @@ def main():
     if page not in PAGE_FUNCTIONS:
         page = st.session_state.page = "Home"
     PAGE_FUNCTIONS[page]()
+    emit_focus()
 
 
 main()
